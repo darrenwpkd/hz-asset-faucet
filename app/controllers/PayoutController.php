@@ -69,6 +69,10 @@ class PayoutController extends BaseController {
         $my_addr = Config::get('faucet.address');
         $client = new HorizonClient($host, $port);
 
+        // asset modifications - 24-06-15
+        $asset_id = '12862026363025360400'; // eg argenbits
+        $assetName = 'ArgenBits';
+        
         try {
             // Local account balance validation
             $res = $client->runCommand(
@@ -77,7 +81,19 @@ class PayoutController extends BaseController {
 
             // Balance too low            
             $minbalance = Config::get('faucet.minbalance');
-            if($res->balanceNQT < $minbalance)
+            
+            // now find asset balance
+            $assetBalance = 0;
+            
+            if (!empty($res->assetBalances)) {
+                foreach($res->assetBalances as $asset) {
+                    if ($asset->asset===$asset_id) {
+                        $assetBalance = $asset->balanceQNT;
+                    }
+                }
+            }
+            
+            if($assetBalance < $minbalance)
             {
                 $msg = "Faucet is dry :-( Try again soon!";
 
@@ -113,8 +129,9 @@ class PayoutController extends BaseController {
 
             $txOpts = array(
                 'secretPhrase' => Config::get('faucet.passphrase'),
+                'asset' => $asset_id,
                 'recipient' => $user_addr,
-                'amountNQT' => $amount * pow(10, 8),
+                'quantityQNT' => $amount, // remove the "POW" part as this is a QNT not a NQT
                 'feeNQT' => 1*pow(10, 8),
                 'deadline' => 60
             );
@@ -124,7 +141,7 @@ class PayoutController extends BaseController {
                 $txOpts['recipientPublicKey'] = $pubkey;
             }
 
-            $res = $client->runCommand('POST', 'sendMoney', $txOpts);
+            $res = $client->runCommand('POST', 'transferAsset', $txOpts);
         } catch(InvalidAccountException $e) {
             $this->messages->add('error', 'Invalid account ID. Please check your input!');
             return Redirect::to('/')->with('flash', $this->messages->getMessages());
@@ -139,7 +156,7 @@ class PayoutController extends BaseController {
         }
 
         // Huzzah! It worked!
-        $msg = 'Sent ' . $amount . ' Horizon to ' . $user_addr . "!<br />See you next time!";
+        $msg = 'Sent ' . $amount . ' ' . $assetName . ' to ' . $user_addr . "!<br />See you next time!";
         $this->messages->add('success', $msg);
         Log::info('PAYOUTLOG : ' . Carbon::now() . " : $amount : $user_addr");
 
